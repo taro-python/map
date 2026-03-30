@@ -1,113 +1,112 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-    
-    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
-    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
-    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
-    
-            <meta name="viewport" content="width=device-width,
-                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-            <style>
-                #map_ff71664f05b9ab2c2f6e0598e4df5cbc {
-                    position: relative;
-                    width: 100.0%;
-                    height: 100.0%;
-                    left: 0.0%;
-                    top: 0.0%;
-                }
-                .leaflet-container { font-size: 1rem; }
-            </style>
-
-            <style>html, body {
-                width: 100%;
-                height: 100%;
-                margin: 0;
-                padding: 0;
-            }
-            </style>
-
-            <style>#map {
-                position:absolute;
-                top:0;
-                bottom:0;
-                right:0;
-                left:0;
-                }
-            </style>
-
-            <script>
-                L_NO_TOUCH = false;
-                L_DISABLE_3D = false;
-            </script>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GPS Unit Locator</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #101010; color: #00FF00; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
+        #hudd { position: absolute; top: 10px; left: 10px; z-index: 10; font-size: 12px; text-shadow: 0 0 5px #00FF00; }
         
+        /* コンパスの外枠 */
+        #compass-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px; border: 2px solid #00FF00; border-radius: 50%; box-shadow: 0 0 15px rgba(0, 255, 0, 0.5); }
+        #compass-rose { position: absolute; width: 100%; height: 100%; transition: transform 0.1s linear; }
+        .axis { position: absolute; background-color: rgba(0, 255, 0, 0.3); }
+        .axis.v { top: 0; left: 50%; width: 1px; height: 100%; }
+        .axis.h { top: 50%; left: 0; width: 100%; height: 1px; }
+
+        /* 相手を示すマーカー */
+        #target-marker { position: absolute; top: -10px; left: calc(50% - 10px); width: 20px; height: 20px; background-color: #FF0000; border-radius: 50%; box-shadow: 0 0 10px #FF0000; display: none; /* 初期は非表示 */ }
+        
+        #distance-display { position: absolute; bottom: 20px; width: 100%; text-align: center; font-size: 24px; font-weight: bold; }
+    </style>
 </head>
 <body>
-    
-    
-            <div class="folium-map" id="map_ff71664f05b9ab2c2f6e0598e4df5cbc" ></div>
-        
+
+    <div id="hudd">
+        <div>MY GPS: <span id="my-coords">WAITING...</span></div>
+        <div>TGT GPS: <span id="tgt-coords">NO DATA</span></div>
+    </div>
+
+    <div id="compass-container">
+        <div id="compass-rose">
+            <div class="axis v"></div>
+            <div class="axis h"></div>
+            </div>
+        <div id="target-marker-wrapper" style="position:absolute; width:100%; height:100%; transform-origin: center center;">
+            <div id="target-marker"></div>
+        </div>
+    </div>
+
+    <div id="distance-display">--- M</div>
+
+    <script>
+        // ヒュベニの公式（距離計算）
+        function getDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371000; // 米
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c; 
+        }
+
+        // 方位角の計算（真北を0度とした時計回りの角度）
+        function getBearing(lat1, lng1, lat2, lng2) {
+            const y = Math.sin((lng2 - lng1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lng2 - lng1) * Math.PI / 180);
+            const bearing = Math.atan2(y, x) * 180 / Math.PI;
+            return (bearing + 360) % 360; // 0〜360に正規化
+        }
+
+        // UIを更新する関数
+        function updateUI(myLat, myLng, tgtLat, tgtLng) {
+            // 距離と方位を計算
+            const distance = getDistance(myLat, myLng, tgtLat, tgtLng);
+            const bearing = getBearing(myLat, myLng, tgtLat, tgtLng);
+
+            // 座標表示を更新
+            document.getElementById('my-coords').innerText = `${myLat.toFixed(4)}, ${myLng.toFixed(4)}`;
+            document.getElementById('tgt-coords').innerText = `${tgtLat.toFixed(4)}, ${tgtLng.toFixed(4)}`;
+
+            // 距離表示を更新（KMに変換）
+            const distStr = distance > 1000 ? (distance/1000).toFixed(2) + " KM" : Math.round(distance) + " M";
+            document.getElementById('distance-display').innerText = distStr;
+
+            // マーカーの位置（角度）を更新
+            const markerWrapper = document.getElementById('target-marker-wrapper');
+            const marker = document.getElementById('target-marker');
+            markerWrapper.style.transform = `rotate(${bearing}deg)`; // 相手の方角へ回転
+            marker.style.display = 'block'; // マーカーを表示
+        }
+
+        // GPS取得（WatchPositionで持続的に取得）
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(
+                (position) => {
+                    const myLat = position.coords.latitude;
+                    const myLng = position.coords.longitude;
+
+                    // 【ここにFirebaseへの送信処理が入る】
+                    // firebase.database().ref('users/myID').set({ lat: myLat, lng: myLng });
+
+                    // 【テスト用：Firebaseの代わりに、少し離れた位置（+0.005）を相手データとして仮定】
+                    const dummyTgtLat = myLat + 0.005;
+                    const dummyTgtLng = myLng + 0.005;
+                    
+                    // 【ここにFirebaseからの受信処理が入る】
+                    // 相手のデータが更新されたら、その値を使ってupdateUIを呼ぶ
+                    updateUI(myLat, myLng, dummyTgtLat, dummyTgtLng);
+                },
+                (error) => { console.error(error); },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+        } else {
+            alert("GPSが利用できません");
+        }
+    </script>
 </body>
-<script>
-    
-    
-            var map_ff71664f05b9ab2c2f6e0598e4df5cbc = L.map(
-                "map_ff71664f05b9ab2c2f6e0598e4df5cbc",
-                {
-                    center: [44.0605, 143.533],
-                    crs: L.CRS.EPSG3857,
-                    ...{
-  "zoom": 14,
-  "zoomControl": true,
-  "preferCanvas": false,
-}
-
-                }
-            );
-            L.control.scale().addTo(map_ff71664f05b9ab2c2f6e0598e4df5cbc);
-
-            
-
-        
-    
-            var tile_layer_91d444f589115bc9275d90be3d99369d = L.tileLayer(
-                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-                {
-  "minZoom": 0,
-  "maxZoom": 19,
-  "maxNativeZoom": 19,
-  "noWrap": false,
-  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors",
-  "subdomains": "abc",
-  "detectRetina": false,
-  "tms": false,
-  "opacity": 1,
-}
-
-            );
-        
-    
-            tile_layer_91d444f589115bc9275d90be3d99369d.addTo(map_ff71664f05b9ab2c2f6e0598e4df5cbc);
-        
-    
-                var lat_lng_popup_2b9cdc24fd57a51bae386da660030481 = L.popup();
-                function latLngPop(e) {
-                    lat_lng_popup_2b9cdc24fd57a51bae386da660030481
-                        .setLatLng(e.latlng)
-                        .setContent("Latitude: " + e.latlng.lat.toFixed(4) +
-                                    "<br>Longitude: " + e.latlng.lng.toFixed(4))
-                        .openOn(map_ff71664f05b9ab2c2f6e0598e4df5cbc);
-                    }
-                map_ff71664f05b9ab2c2f6e0598e4df5cbc.on('click', latLngPop);
-            
-</script>
 </html>
