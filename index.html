@@ -3,109 +3,140 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GPS Unit Locator</title>
+    <title>MIL Unit Locator</title>
     <style>
-        body { margin: 0; padding: 0; background-color: #101010; color: #00FF00; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
-        #hudd { position: absolute; top: 10px; left: 10px; z-index: 10; font-size: 12px; text-shadow: 0 0 5px #00FF00; }
+        body { margin: 0; padding: 0; background-color: #0a0a0a; color: #00FF00; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
         
-        /* コンパスの外枠 */
-        #compass-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px; border: 2px solid #00FF00; border-radius: 50%; box-shadow: 0 0 15px rgba(0, 255, 0, 0.5); }
-        #compass-rose { position: absolute; width: 100%; height: 100%; transition: transform 0.1s linear; }
-        .axis { position: absolute; background-color: rgba(0, 255, 0, 0.3); }
+        /* HUD (情報表示エリア) */
+        #hud { position: absolute; top: 15px; left: 15px; font-size: 12px; z-index: 10; pointer-events: none; line-height: 1.5; text-shadow: 0 0 5px #00FF00; }
+        .label { color: rgba(0, 255, 0, 0.6); font-size: 10px; }
+
+        /* コンパス外枠 */
+        #compass-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; height: 280px; border: 1px solid #00FF00; border-radius: 50%; box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.1); }
+        
+        /* 軸線 */
+        .axis { position: absolute; background-color: rgba(0, 255, 0, 0.2); }
         .axis.v { top: 0; left: 50%; width: 1px; height: 100%; }
         .axis.h { top: 50%; left: 0; width: 100%; height: 1px; }
 
-        /* 相手を示すマーカー */
-        #target-marker { position: absolute; top: -10px; left: calc(50% - 10px); width: 20px; height: 20px; background-color: #FF0000; border-radius: 50%; box-shadow: 0 0 10px #FF0000; display: none; /* 初期は非表示 */ }
-        
-        #distance-display { position: absolute; bottom: 20px; width: 100%; text-align: center; font-size: 24px; font-weight: bold; }
+        /* ターゲット表示（赤丸） */
+        #target-marker-wrapper { position: absolute; width: 100%; height: 100%; transform-origin: center center; transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+        #target-marker { position: absolute; top: -12px; left: calc(50% - 12px); width: 24px; height: 24px; background-color: #FF0000; border: 2px solid #FFF; border-radius: 50%; box-shadow: 0 0 15px #FF0000; display: none; }
+        #target-marker::after { content: 'TGT'; position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; }
+
+        /* 距離表示 */
+        #dist-display { position: absolute; bottom: 40px; width: 100%; text-align: center; font-size: 36px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 15px #00FF00; }
+        #dist-unit { font-size: 16px; margin-left: 5px; }
     </style>
 </head>
 <body>
 
-    <div id="hudd">
-        <div>MY GPS: <span id="my-coords">WAITING...</span></div>
-        <div>TGT GPS: <span id="tgt-coords">NO DATA</span></div>
+    <div id="hud">
+        <span class="label">OWNER_ID:</span> <span id="display-id">---</span><br>
+        <span class="label">TRACKING:</span> <span id="tgt-id">---</span><br>
+        <span class="label">COORDS :</span> <span id="my-pos">GPS WAITING...</span>
     </div>
 
     <div id="compass-container">
-        <div id="compass-rose">
-            <div class="axis v"></div>
-            <div class="axis h"></div>
-            </div>
-        <div id="target-marker-wrapper" style="position:absolute; width:100%; height:100%; transform-origin: center center;">
+        <div class="axis v"></div>
+        <div class="axis h"></div>
+        <div id="target-marker-wrapper">
             <div id="target-marker"></div>
         </div>
     </div>
 
-    <div id="distance-display">--- M</div>
+    <div id="dist-display">---<span id="dist-unit">M</span></div>
 
-    <script>
-        // ヒュベニの公式（距離計算）
-        function getDistance(lat1, lng1, lat2, lng2) {
-            const R = 6371000; // 米
+    <script type="module">
+        // Firebaseライブラリの読み込み
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        // 送信いただいたFirebase設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyDsART06pbzX4ZSiak1QSRBa-a9vjXJI2U",
+            authDomain: "mil-unit-locator.firebaseapp.com",
+            databaseURL: "https://mil-unit-locator-default-rtdb.firebaseio.com",
+            projectId: "mil-unit-locator",
+            storageBucket: "mil-unit-locator.firebasestorage.app",
+            messagingSenderId: "909459789384",
+            appId: "1:909459789384:web:3cc8eaf86bea210dcbaa7d"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // ユーザー識別の取得
+        const urlParams = new URLSearchParams(window.location.search);
+        const myId = urlParams.get('id') || 'user1'; // デフォルトはuser1
+        const targetId = (myId === 'user1') ? 'user2' : 'user1';
+
+        document.getElementById('display-id').innerText = myId.toUpperCase();
+        document.getElementById('tgt-id').innerText = targetId.toUpperCase();
+
+        // 2地点間の距離計算
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
                       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLng/2) * Math.sin(dLng/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R * c; 
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // 方位角の計算（真北を0度とした時計回りの角度）
-        function getBearing(lat1, lng1, lat2, lng2) {
-            const y = Math.sin((lng2 - lng1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
+        // 2地点間の方位角計算
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+            const y = Math.sin((lon2-lon1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
             const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lng2 - lng1) * Math.PI / 180);
-            const bearing = Math.atan2(y, x) * 180 / Math.PI;
-            return (bearing + 360) % 360; // 0〜360に正規化
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2-lon1) * Math.PI / 180);
+            const brng = Math.atan2(y, x) * 180 / Math.PI;
+            return (brng + 360) % 360;
         }
 
-        // UIを更新する関数
-        function updateUI(myLat, myLng, tgtLat, tgtLng) {
-            // 距離と方位を計算
-            const distance = getDistance(myLat, myLng, tgtLat, tgtLng);
-            const bearing = getBearing(myLat, myLng, tgtLat, tgtLng);
-
-            // 座標表示を更新
-            document.getElementById('my-coords').innerText = `${myLat.toFixed(4)}, ${myLng.toFixed(4)}`;
-            document.getElementById('tgt-coords').innerText = `${tgtLat.toFixed(4)}, ${tgtLng.toFixed(4)}`;
-
-            // 距離表示を更新（KMに変換）
-            const distStr = distance > 1000 ? (distance/1000).toFixed(2) + " KM" : Math.round(distance) + " M";
-            document.getElementById('distance-display').innerText = distStr;
-
-            // マーカーの位置（角度）を更新
-            const markerWrapper = document.getElementById('target-marker-wrapper');
-            const marker = document.getElementById('target-marker');
-            markerWrapper.style.transform = `rotate(${bearing}deg)`; // 相手の方角へ回転
-            marker.style.display = 'block'; // マーカーを表示
-        }
-
-        // GPS取得（WatchPositionで持続的に取得）
+        // GPS監視開始
         if (navigator.geolocation) {
-            navigator.geolocation.watchPosition(
-                (position) => {
-                    const myLat = position.coords.latitude;
-                    const myLng = position.coords.longitude;
+            navigator.geolocation.watchPosition((position) => {
+                const myLat = position.coords.latitude;
+                const myLng = position.coords.longitude;
+                
+                document.getElementById('my-pos').innerText = `${myLat.toFixed(5)}, ${myLng.toFixed(5)}`;
 
-                    // 【ここにFirebaseへの送信処理が入る】
-                    // firebase.database().ref('users/myID').set({ lat: myLat, lng: myLng });
+                // 自分の現在地をFirebaseに保存
+                set(ref(db, 'locations/' + myId), {
+                    lat: myLat,
+                    lng: myLng,
+                    timestamp: Date.now()
+                });
 
-                    // 【テスト用：Firebaseの代わりに、少し離れた位置（+0.005）を相手データとして仮定】
-                    const dummyTgtLat = myLat + 0.005;
-                    const dummyTgtLng = myLng + 0.005;
-                    
-                    // 【ここにFirebaseからの受信処理が入る】
-                    // 相手のデータが更新されたら、その値を使ってupdateUIを呼ぶ
-                    updateUI(myLat, myLng, dummyTgtLat, dummyTgtLng);
-                },
-                (error) => { console.error(error); },
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-            );
+                // 相手の現在地を監視
+                onValue(ref(db, 'locations/' + targetId), (snapshot) => {
+                    const data = snapshot.val();
+                    if (data && data.lat) {
+                        const dist = calculateDistance(myLat, myLng, data.lat, data.lng);
+                        const bearing = calculateBearing(myLat, myLng, data.lat, data.lng);
+
+                        // 距離表示の更新
+                        if (dist > 1000) {
+                            document.getElementById('dist-display').innerHTML = (dist/1000).toFixed(2) + '<span id="dist-unit">KM</span>';
+                        } else {
+                            document.getElementById('dist-display').innerHTML = Math.round(dist) + '<span id="dist-unit">M</span>';
+                        }
+
+                        // 方角（マーカー回転）の更新
+                        document.getElementById('target-marker-wrapper').style.transform = `rotate(${bearing}deg)`;
+                        document.getElementById('target-marker').style.display = 'block';
+                    }
+                });
+
+            }, (error) => {
+                alert("GPSエラー: " + error.message);
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: 0
+            });
         } else {
-            alert("GPSが利用できません");
+            alert("このブラウザはGPSをサポートしていません。");
         }
     </script>
 </body>
