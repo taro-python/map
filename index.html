@@ -3,38 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MIL Unit Locator</title>
+    <title>MIL ユニット・ロケーター</title>
     <style>
         body { margin: 0; padding: 0; background-color: #0a0a0a; color: #00FF00; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
-        
-        /* HUD (情報表示エリア) */
-        #hud { position: absolute; top: 15px; left: 15px; font-size: 12px; z-index: 10; pointer-events: none; line-height: 1.5; text-shadow: 0 0 5px #00FF00; }
-        .label { color: rgba(0, 255, 0, 0.6); font-size: 10px; }
+        #hud { position: absolute; top: 15px; left: 15px; font-size: 12px; z-index: 10; pointer-events: none; line-height: 1.6; text-shadow: 0 0 5px #00FF00; }
+        .label { color: rgba(0, 255, 0, 0.6); font-size: 10px; margin-right: 5px; }
 
-        /* コンパス外枠 */
-        #compass-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; height: 280px; border: 1px solid #00FF00; border-radius: 50%; box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.1); }
-        
-        /* 軸線 */
+        #compass-container { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); width: 280px; height: 280px; border: 1px solid #00FF00; border-radius: 50%; box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.1); }
         .axis { position: absolute; background-color: rgba(0, 255, 0, 0.2); }
         .axis.v { top: 0; left: 50%; width: 1px; height: 100%; }
         .axis.h { top: 50%; left: 0; width: 100%; height: 1px; }
 
-        /* ターゲット表示（赤丸） */
         #target-marker-wrapper { position: absolute; width: 100%; height: 100%; transform-origin: center center; transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
         #target-marker { position: absolute; top: -12px; left: calc(50% - 12px); width: 24px; height: 24px; background-color: #FF0000; border: 2px solid #FFF; border-radius: 50%; box-shadow: 0 0 15px #FF0000; display: none; }
-        #target-marker::after { content: 'TGT'; position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; }
+        #target-marker::after { content: '目標'; position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; white-space: nowrap; }
 
-        /* 距離表示 */
-        #dist-display { position: absolute; bottom: 40px; width: 100%; text-align: center; font-size: 36px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 15px #00FF00; }
-        #dist-unit { font-size: 16px; margin-left: 5px; }
+        #dist-display { position: absolute; bottom: 60px; width: 100%; text-align: center; font-size: 40px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 15px #00FF00; }
+        #dist-unit { font-size: 18px; margin-left: 5px; }
+        #status-msg { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 12px; color: rgba(0, 255, 0, 0.5); }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/mgrs@1.0.0/dist/mgrs.min.js"></script>
 </head>
 <body>
 
     <div id="hud">
-        <span class="label">OWNER_ID:</span> <span id="display-id">---</span><br>
-        <span class="label">TRACKING:</span> <span id="tgt-id">---</span><br>
-        <span class="label">COORDS :</span> <span id="my-pos">GPS WAITING...</span>
+        <span class="label">自機ID:</span> <span id="display-id">---</span><br>
+        <span class="label">追跡中:</span> <span id="tgt-id">---</span><br>
+        <span class="label">MGRS :</span> <span id="my-mgrs">取得中...</span>
     </div>
 
     <div id="compass-container">
@@ -45,14 +40,13 @@
         </div>
     </div>
 
-    <div id="dist-display">---<span id="dist-unit">M</span></div>
+    <div id="dist-display">---<span id="dist-unit">m</span></div>
+    <div id="status-msg">GPS信号待機中...</div>
 
     <script type="module">
-        // Firebaseライブラリの読み込み
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        // 送信いただいたFirebase設定
         const firebaseConfig = {
             apiKey: "AIzaSyDsART06pbzX4ZSiak1QSRBa-a9vjXJI2U",
             authDomain: "mil-unit-locator.firebaseapp.com",
@@ -66,77 +60,75 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // ユーザー識別の取得
         const urlParams = new URLSearchParams(window.location.search);
-        const myId = urlParams.get('id') || 'user1'; // デフォルトはuser1
+        const myId = urlParams.get('id') || 'user1';
         const targetId = (myId === 'user1') ? 'user2' : 'user1';
 
         document.getElementById('display-id').innerText = myId.toUpperCase();
         document.getElementById('tgt-id').innerText = targetId.toUpperCase();
 
-        // 2地点間の距離計算
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371000; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // 2地点間の方位角計算
         function calculateBearing(lat1, lon1, lat2, lon2) {
             const y = Math.sin((lon2-lon1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
-            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2-lon1) * Math.PI / 180);
-            const brng = Math.atan2(y, x) * 180 / Math.PI;
-            return (brng + 360) % 360;
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) - Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2-lon1) * Math.PI / 180);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
         }
 
-        // GPS監視開始
         if (navigator.geolocation) {
             navigator.geolocation.watchPosition((position) => {
                 const myLat = position.coords.latitude;
                 const myLng = position.coords.longitude;
                 
-                document.getElementById('my-pos').innerText = `${myLat.toFixed(5)}, ${myLng.toFixed(5)}`;
+                // MGRSに変換
+                try {
+                    const mgrsStr = mgrs.forward([myLng, myLat]);
+                    document.getElementById('my-mgrs').innerText = mgrsStr;
+                } catch(e) {
+                    document.getElementById('my-mgrs').innerText = "変換エラー";
+                }
 
-                // 自分の現在地をFirebaseに保存
+                document.getElementById('status-msg').innerText = "オンライン: 位置情報更新中";
+
                 set(ref(db, 'locations/' + myId), {
                     lat: myLat,
                     lng: myLng,
                     timestamp: Date.now()
                 });
 
-                // 相手の現在地を監視
                 onValue(ref(db, 'locations/' + targetId), (snapshot) => {
                     const data = snapshot.val();
                     if (data && data.lat) {
                         const dist = calculateDistance(myLat, myLng, data.lat, data.lng);
                         const bearing = calculateBearing(myLat, myLng, data.lat, data.lng);
 
-                        // 距離表示の更新
-                        if (dist > 1000) {
-                            document.getElementById('dist-display').innerHTML = (dist/1000).toFixed(2) + '<span id="dist-unit">KM</span>';
+                        if (dist < 10) {
+                            document.getElementById('dist-display').innerHTML = '至近距離';
+                            document.getElementById('target-marker').style.display = 'none';
                         } else {
-                            document.getElementById('dist-display').innerHTML = Math.round(dist) + '<span id="dist-unit">M</span>';
+                            if (dist > 1000) {
+                                document.getElementById('dist-display').innerHTML = (dist/1000).toFixed(2) + '<span id="dist-unit">km</span>';
+                            } else {
+                                document.getElementById('dist-display').innerHTML = Math.round(dist) + '<span id="dist-unit">m</span>';
+                            }
+                            document.getElementById('target-marker-wrapper').style.transform = `rotate(${bearing}deg)`;
+                            document.getElementById('target-marker').style.display = 'block';
                         }
-
-                        // 方角（マーカー回転）の更新
-                        document.getElementById('target-marker-wrapper').style.transform = `rotate(${bearing}deg)`;
-                        document.getElementById('target-marker').style.display = 'block';
                     }
                 });
 
             }, (error) => {
-                alert("GPSエラー: " + error.message);
+                document.getElementById('status-msg').innerText = "GPSエラー: " + error.message;
             }, {
                 enableHighAccuracy: true,
                 maximumAge: 0
             });
-        } else {
-            alert("このブラウザはGPSをサポートしていません。");
         }
     </script>
 </body>
