@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MIL Radar - Firebase Sync</title>
+    <title>タクティカル・レーダー</title>
     
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
@@ -11,7 +11,7 @@
 
     <style>
         :root { --radar-green: #2ecc71; --bg: #050505; --accent-red: #ff3333; }
-        body { margin: 0; background: var(--bg); color: white; font-family: 'Consolas', monospace; display: flex; flex-direction: column; align-items: center; height: 100vh; overflow: hidden; }
+        body { margin: 0; background: var(--bg); color: white; font-family: 'Hiragino Kaku Gothic ProN', sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; overflow: hidden; }
         
         #radar-container { position: relative; width: 320px; height: 320px; margin-top: 40px; }
         #compass-rose { position: absolute; width: 100%; height: 100%; transition: transform 0.1s linear; z-index: 5; }
@@ -33,18 +33,22 @@
         }
 
         #self-marker { position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; background: var(--accent-red); border: 2px solid #fff; border-radius: 50%; transform: translate(-50%, -50%); z-index: 10; box-shadow: 0 0 10px var(--accent-red); }
-        .peer-dot { position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; background: #ffff00; border-radius: 50%; border: 2px solid white; z-index: 8; box-shadow: 0 0 8px #ffff00; transition: transform 0.5s ease-out; }
+        
+        /* 他機ドットと距離ラベル */
+        .peer-wrapper { position: absolute; top: 50%; left: 50%; transition: all 0.5s ease-out; z-index: 8; pointer-events: none; }
+        .peer-dot { width: 12px; height: 12px; background: #ffff00; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 8px #ffff00; transform: translate(-50%, -50%); }
+        .peer-label { position: absolute; top: 10px; left: 10px; font-size: 10px; color: #ffff00; white-space: nowrap; font-weight: bold; text-shadow: 1px 1px 2px black; }
 
         #info-panel { width: 90%; margin-top: 30px; padding: 15px; border: 1px solid var(--radar-green); border-radius: 10px; background: rgba(0,30,0,0.4); box-sizing: border-box; }
-        .data-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-        .val { font-weight: bold; color: #fff; font-size: 1.1rem; }
-        button { width: 100%; padding: 12px; background: var(--radar-green); border: none; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9rem; }
+        .val { font-weight: bold; color: #fff; font-size: 1.1rem; font-family: monospace; }
+        button { width: 100%; padding: 12px; background: var(--radar-green); border: none; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 10px; font-size: 1rem; }
     </style>
 </head>
 <body>
 
 <div id="radar-container">
-    <div id="compass-rose"><div class="direction n">N</div><div class="direction e">E</div><div class="direction s">S</div><div class="direction w">W</div></div>
+    <div id="compass-rose"><div class="direction n">北</div><div class="direction e">東</div><div class="direction s">南</div><div class="direction w">西</div></div>
     <div id="radar-screen">
         <div class="grid-lines" id="grid"></div>
         <div id="self-marker"></div>
@@ -52,14 +56,13 @@
 </div>
 
 <div id="info-panel">
-    <div class="data-row"><span>MGRS:</span> <span id="mgrs-display" class="val">WAITING GPS...</span></div>
-    <div class="data-row"><span>HEADING:</span> <span id="mil-display" class="val">0000 mil</span></div>
-    <div id="peer-status" style="font-size: 11px; color: var(--radar-green); margin-top: 5px; border-top: 1px dotted #444; padding-top: 5px;">Ready to Scan...</div>
-    <button onclick="startSystem()">SYSTEM START</button>
+    <div class="data-row"><span>現在地 (MGRS):</span> <span id="mgrs-display" class="val">測位中...</span></div>
+    <div class="data-row"><span>進行方位 (ミル):</span> <span id="mil-display" class="val">0000 mil</span></div>
+    <div id="peer-status" style="font-size: 11px; color: var(--radar-green); margin-top: 5px; border-top: 1px dotted #444; padding-top: 5px;">システム待機中...</div>
+    <button id="start-btn" onclick="startSystem()">システム起動</button>
 </div>
 
 <script>
-    // あなたのFirebase設定を適用済み
     const firebaseConfig = {
         apiKey: "AIzaSyDsART06pbzX4ZSiak1QSRBa-a9vjXJI2U",
         authDomain: "mil-unit-locator.firebaseapp.com",
@@ -72,13 +75,12 @@
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    
-    // 自機IDをランダムに生成（ブラウザを閉じるまで有効）
     const myId = "UNIT_" + Math.random().toString(36).substr(2, 4).toUpperCase();
     let myCoords = { lat: 0, lon: 0 };
 
     function startSystem() {
-        // 方位権限リクエスト
+        document.getElementById('start-btn').style.display = 'none';
+        
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             DeviceOrientationEvent.requestPermission().then(res => {
                 if(res === 'granted') window.addEventListener('deviceorientation', handleOrientation, true);
@@ -87,32 +89,26 @@
             window.addEventListener('deviceorientation', handleOrientation, true);
         }
 
-        // GPS開始
         navigator.geolocation.watchPosition(pos => {
             myCoords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
             
-            // Firebaseに自分の位置を送信
             db.ref('locations/' + myId).set({
                 lat: myCoords.lat,
                 lon: myCoords.lon,
                 timestamp: firebase.database.ServerValue.TIMESTAMP
             });
 
-            // MGRS表示更新
             try {
                 const code = mgrs.forward([myCoords.lon, myCoords.lat]);
                 document.getElementById('mgrs-display').innerText = formatMGRS(code);
-            } catch(e) { console.error("MGRS Error", e); }
-        }, err => {
-            document.getElementById('mgrs-display').innerText = "GPS ERROR";
-        }, { enableHighAccuracy: true });
+            } catch(e) {}
+        }, null, { enableHighAccuracy: true });
 
-        // 他機の監視
         db.ref('locations').on('value', snapshot => {
             updatePeerMarkers(snapshot.val());
         });
 
-        document.getElementById('peer-status').innerText = `Your ID: ${myId} | Scanning...`;
+        document.getElementById('peer-status').innerText = `自機ID: ${myId} | スキャン中...`;
     }
 
     function handleOrientation(e) {
@@ -122,46 +118,46 @@
         const mil = Math.round(heading * (6400 / 360));
         document.getElementById('mil-display').innerText = mil.toString().padStart(4, '0') + " mil";
         
-        // 回転
         document.getElementById('compass-rose').style.transform = `rotate(${-heading}deg)`;
         document.getElementById('grid').style.transform = `rotate(${-heading}deg)`;
     }
 
     function updatePeerMarkers(allData) {
-        if (!allData) return;
+        if (!allData || !myCoords.lat) return;
         const screen = document.getElementById('radar-screen');
         const now = Date.now();
 
         Object.keys(allData).forEach(id => {
-            if (id === myId) return; // 自分は表示しない
+            if (id === myId) return;
             
             const peer = allData[id];
-            // 3分以上更新がない機体は消去
             if (now - peer.timestamp > 180000) {
-                const old = document.getElementById('peer-' + id);
+                const old = document.getElementById('peer-wrap-' + id);
                 if (old) old.remove();
                 return;
             }
 
-            let dot = document.getElementById('peer-' + id);
-            if (!dot) {
-                dot = document.createElement('div');
-                dot.id = 'peer-' + id;
-                dot.className = 'peer-dot';
-                screen.appendChild(dot);
+            let wrapper = document.getElementById('peer-wrap-' + id);
+            if (!wrapper) {
+                wrapper = document.createElement('div');
+                wrapper.id = 'peer-wrap-' + id;
+                wrapper.className = 'peer-wrapper';
+                wrapper.innerHTML = `<div class="peer-dot"></div><div class="peer-label" id="dist-${id}">---m</div>`;
+                screen.appendChild(wrapper);
             }
 
-            // 距離と相対位置の計算 (1度 ≒ 111,320m)
             const dLat = (peer.lat - myCoords.lat) * 111320;
             const dLon = (peer.lon - myCoords.lon) * (111320 * Math.cos(myCoords.lat * Math.PI / 180));
+            
+            // 距離の計算
+            const distance = Math.sqrt(dLat*dLat + dLon*dLon);
+            document.getElementById(`dist-${id}`).innerText = id + " [" + Math.round(distance) + "m]";
 
-            // レーダーの縮尺 (1m = 0.5px / つまり半径150pxで300m範囲)
-            const scale = 0.5;
+            const scale = 0.5; // 1m = 0.5px (レーダー半径150pxで300m)
             const x = dLon * scale;
             const y = -dLat * scale;
 
-            // 画面外に突き抜けないように制限（オプション）
-            dot.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+            wrapper.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
         });
     }
 
