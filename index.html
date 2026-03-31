@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Tactical Grid Radar</title>
+    <title>MIL Tactical Radar</title>
     <script src="https://unpkg.com/mgrs@1.0.0/dist/mgrs.min.js"></script>
     <style>
         :root {
@@ -11,119 +11,93 @@
             --radar-bg: #001a00;
             --grid-line: rgba(46, 204, 113, 0.4);
             --text-color: #ffffff;
+            --accent-red: #ff3333;
         }
 
         body {
-            margin: 0;
-            padding: 0;
-            background-color: #111;
+            margin: 0; padding: 0;
+            background-color: #050505;
             color: var(--text-color);
-            font-family: 'Courier New', Courier, monospace;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden;
+            font-family: 'Consolas', 'Monaco', monospace;
+            display: flex; flex-direction: column; align-items: center;
+            height: 100vh; overflow: hidden;
         }
 
-        /* レーダー全体のコンテナ */
+        /* 上部ステータス */
+        #status-bar {
+            width: 90%; margin-top: 10px; font-size: 12px;
+            display: flex; justify-content: space-between; color: var(--radar-green);
+        }
+
+        /* レーダーコンテナ */
         #radar-container {
-            position: relative;
-            width: 320px;
-            height: 320px;
-            margin-bottom: 20px;
+            position: relative; width: 300px; height: 300px; margin: 40px 0;
         }
 
-        /* 外周のNSEW（コンパス） */
         #compass-rose {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            transition: transform 0.1s ease-out;
-            z-index: 5;
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            transition: transform 0.1s linear; z-index: 5;
         }
 
         .direction {
-            position: absolute;
-            font-size: 24px;
-            font-weight: bold;
-            color: var(--radar-green);
-            text-shadow: 0 0 10px var(--radar-green);
+            position: absolute; font-size: 20px; font-weight: bold; color: var(--radar-green);
         }
+        .n { top: -25px; left: 50%; transform: translateX(-50%); color: var(--accent-red); }
+        .s { bottom: -25px; left: 50%; transform: translateX(-50%); }
+        .e { right: -25px; top: 50%; transform: translateY(-50%); }
+        .w { left: -25px; top: 50%; transform: translateY(-50%); }
 
-        .n { top: -30px; left: 50%; transform: translateX(-50%); color: #ff3333; }
-        .s { bottom: -30px; left: 50%; transform: translateX(-50%); }
-        .e { right: -30px; top: 50%; transform: translateY(-50%); }
-        .w { left: -30px; top: 50%; transform: translateY(-50%); }
-
-        /* 碁盤の目（レーダー画面） */
         #radar-screen {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            border-radius: 50%;
-            background-color: var(--radar-bg);
-            border: 4px solid var(--radar-green);
-            box-shadow: inset 0 0 30px rgba(0, 255, 0, 0.3), 0 0 15px rgba(0, 255, 0, 0.2);
-            overflow: hidden;
-            z-index: 2;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            border-radius: 50%; background-color: var(--radar-bg);
+            border: 3px solid var(--radar-green);
+            box-shadow: inset 0 0 20px rgba(0,255,0,0.2); overflow: hidden;
         }
 
-        /* 網目（碁盤の目） */
         .grid-lines {
-            width: 200%; height: 200%;
-            position: absolute;
-            top: -50%; left: -50%;
+            width: 200%; height: 200%; position: absolute; top: -50%; left: -50%;
             background-image: 
                 linear-gradient(var(--grid-line) 1px, transparent 1px),
                 linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-            background-size: 40px 40px;
-            background-position: center center;
-            /* 回転時はここを回す */
-            transition: transform 0.1s linear;
+            background-size: 40px 40px; background-position: center center;
         }
 
-        /* 中心：自分マーク */
         #self-marker {
-            position: absolute;
-            top: 50%; left: 50%;
-            width: 14px; height: 14px;
-            background-color: #ff0000;
-            border: 2px solid white;
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 10;
-            box-shadow: 0 0 10px #ff0000;
+            position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
+            background: var(--accent-red); border: 2px solid #fff; border-radius: 50%;
+            transform: translate(-50%, -50%); z-index: 10; box-shadow: 0 0 8px var(--accent-red);
         }
 
-        /* 情報表示エリア */
+        /* 下部パネル */
         #info-panel {
-            text-align: center;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid var(--radar-green);
-            width: 280px;
+            width: 90%; background: rgba(0, 40, 0, 0.3);
+            border: 1px solid var(--radar-green); border-radius: 10px;
+            padding: 15px; box-sizing: border-box;
         }
 
-        .label { color: var(--radar-green); font-size: 0.8rem; margin-bottom: 4px; }
-        .value { font-size: 1.2rem; font-weight: bold; margin-bottom: 10px; letter-spacing: 1px; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .val { font-weight: bold; color: #fff; font-size: 1.1rem; }
+        
+        /* 他機リストエリア */
+        #peer-list {
+            margin-top: 10px; border-top: 1px dotted var(--radar-green);
+            padding-top: 10px; font-size: 12px; max-height: 80px; overflow-y: auto;
+        }
+        .peer-item { color: #aaa; margin-bottom: 4px; }
+        .peer-active { color: var(--radar-green); font-weight: bold; }
 
         button {
-            padding: 10px 20px;
-            background: var(--radar-green);
-            border: none;
-            color: black;
-            font-weight: bold;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-top: 10px;
+            width: 100%; padding: 10px; background: var(--radar-green);
+            border: none; font-weight: bold; border-radius: 5px; margin-top: 10px;
         }
     </style>
 </head>
 <body>
+
+    <div id="status-bar">
+        <span>自機ID: <span id="my-id">---</span></span>
+        <span>追跡中: <span id="target-id">---</span></span>
+    </div>
 
     <div id="radar-container">
         <div id="compass-rose">
@@ -132,7 +106,6 @@
             <div class="direction s">S</div>
             <div class="direction w">W</div>
         </div>
-        
         <div id="radar-screen">
             <div class="grid-lines" id="grid"></div>
             <div id="self-marker"></div>
@@ -140,79 +113,77 @@
     </div>
 
     <div id="info-panel">
-        <div class="label">CURRENT MGRS</div>
-        <div id="mgrs-display" class="value">WAITING GPS...</div>
+        <div class="data-row">
+            <span>MGRS:</span>
+            <span id="mgrs-display" class="val">取得中...</span>
+        </div>
+        <div class="data-row">
+            <span>HEADING:</span>
+            <span id="mil-display" class="val">0000 mil</span>
+        </div>
+
+        <div id="peer-list">
+            <div class="label" style="font-size: 10px; margin-bottom: 5px;">加入中の他機:</div>
+            <div id="peers">待機中...</div>
+        </div>
         
-        <div class="label">HEADING</div>
-        <div id="heading-display" class="value">0°</div>
-        
-        <button onclick="requestPermission()">START RADAR</button>
+        <button onclick="initSystem()">START SYSTEM</button>
     </div>
 
     <script>
-        const mgrsDisplay = document.getElementById('mgrs-display');
-        const headingDisplay = document.getElementById('heading-display');
-        const compassRose = document.getElementById('compass-rose');
-        const grid = document.getElementById('grid');
-
-        // GPS取得
-        if (navigator.geolocation) {
-            navigator.geolocation.watchPosition(position => {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
-                
-                // MGRSに変換 (mgrs.jsを使用)
-                try {
-                    const mgrsCoord = mgrs.forward([lon, lat]);
-                    mgrsDisplay.innerText = formatMGRS(mgrsCoord);
-                } catch (e) {
-                    mgrsDisplay.innerText = "COORD ERROR";
-                }
-            }, error => {
-                mgrsDisplay.innerText = "GPS DISABLED";
-            }, { enableHighAccuracy: true });
+        // ミル変換 (6400ミル)
+        function degToMil(deg) {
+            let mil = Math.round(deg * (6400 / 360));
+            return mil.toString().padStart(4, '0');
         }
 
-        // MGRSを見やすく整形 (例: 54SUE12345678 -> 54S UE 1234 5678)
+        // MGRS整形
         function formatMGRS(str) {
-            return str.replace(/^(\d{2}[A-Z])([A-Z]{2})(\d+)/, (match, gzd, sqd, num) => {
-                const half = num.length / 2;
-                return `${gzd} ${sqd} ${num.substr(0, half)} ${num.substr(half)}`;
+            if(!str) return "ERROR";
+            return str.replace(/^(\d{2}[A-Z])([A-Z]{2})(\d+)/, (m, g, s, n) => {
+                const h = n.length / 2;
+                return `${g} ${s} ${n.substr(0, h)} ${n.substr(h)}`;
             });
         }
 
-        // 方位取得の許可（iOS対策）とイベント登録
-        function requestPermission() {
+        function initSystem() {
+            // 方位許可
             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(permissionState => {
-                        if (permissionState === 'granted') {
-                            window.addEventListener('deviceorientation', handleOrientation, true);
-                        }
-                    })
-                    .catch(console.error);
+                DeviceOrientationEvent.requestPermission().then(state => {
+                    if (state === 'granted') window.addEventListener('deviceorientation', updateHeading, true);
+                });
             } else {
-                window.addEventListener('deviceorientation', handleOrientation, true);
+                window.addEventListener('deviceorientation', updateHeading, true);
             }
+
+            // GPS開始
+            navigator.geolocation.watchPosition(pos => {
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+                try {
+                    const code = mgrs.forward([lon, lat]);
+                    document.getElementById('mgrs-display').innerText = formatMGRS(code);
+                } catch(e) {
+                    document.getElementById('mgrs-display').innerText = "CALC ERROR";
+                }
+            }, err => {
+                document.getElementById('mgrs-display').innerText = "GPS OFF";
+            }, { enableHighAccuracy: true });
+
+            // ダミーの他機リスト（既存サイトのロジックをここに繋げてください）
+            document.getElementById('peers').innerHTML = '<div class="peer-item peer-active">UNIT_02: 54SUE12345678 (3200mil)</div>';
         }
 
-        function handleOrientation(event) {
-            let heading = 0;
-            
-            if (event.webkitCompassHeading) {
-                // iOS
-                heading = event.webkitCompassHeading;
-            } else if (event.alpha) {
-                // Android
-                heading = 360 - event.alpha;
-            }
+        function updateHeading(event) {
+            let heading = event.webkitCompassHeading || (360 - event.alpha);
+            if (heading === undefined) return;
 
-            const roundedHeading = Math.round(heading);
-            headingDisplay.innerText = `${roundedHeading}°`;
+            // ミル表示更新
+            document.getElementById('mil-display').innerText = `${degToMil(heading)} mil`;
 
-            // 外周と網目を回転させる (逆方向に回すことで北を固定)
-            compassRose.style.transform = `rotate(${-heading}deg)`;
-            grid.style.transform = `rotate(${-heading}deg)`;
+            // 回転処理
+            document.getElementById('compass-rose').style.transform = `rotate(${-heading}deg)`;
+            document.getElementById('grid').style.transform = `rotate(${-heading}deg)`;
         }
     </script>
 </body>
