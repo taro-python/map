@@ -3,132 +3,216 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MIL ユニット・ロケーター</title>
+    <title>Tactical Grid Radar</title>
+    <script src="https://unpkg.com/mgrs@1.0.0/dist/mgrs.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #0a0a0a; color: #00FF00; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
-        #hud { position: absolute; top: 15px; left: 15px; font-size: 12px; z-index: 10; pointer-events: none; line-height: 1.6; text-shadow: 0 0 5px #00FF00; }
-        .label { color: rgba(0, 255, 0, 0.6); font-size: 10px; margin-right: 5px; }
+        :root {
+            --radar-green: #2ecc71;
+            --radar-bg: #001a00;
+            --grid-line: rgba(46, 204, 113, 0.4);
+            --text-color: #ffffff;
+        }
 
-        #compass-container { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); width: 280px; height: 280px; border: 1px solid #00FF00; border-radius: 50%; box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.1); }
-        .axis { position: absolute; background-color: rgba(0, 255, 0, 0.2); }
-        .axis.v { top: 0; left: 50%; width: 1px; height: 100%; }
-        .axis.h { top: 50%; left: 0; width: 100%; height: 1px; }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111;
+            color: var(--text-color);
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
 
-        #target-marker-wrapper { position: absolute; width: 100%; height: 100%; transform-origin: center center; transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
-        #target-marker { position: absolute; top: -12px; left: calc(50% - 12px); width: 24px; height: 24px; background-color: #FF0000; border: 2px solid #FFF; border-radius: 50%; box-shadow: 0 0 15px #FF0000; display: none; }
-        #target-marker::after { content: '目標'; position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; white-space: nowrap; }
+        /* レーダー全体のコンテナ */
+        #radar-container {
+            position: relative;
+            width: 320px;
+            height: 320px;
+            margin-bottom: 20px;
+        }
 
-        #dist-display { position: absolute; bottom: 60px; width: 100%; text-align: center; font-size: 40px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 15px #00FF00; }
-        #dist-unit { font-size: 18px; margin-left: 5px; }
-        #status-msg { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 12px; color: rgba(0, 255, 0, 0.5); }
+        /* 外周のNSEW（コンパス） */
+        #compass-rose {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            transition: transform 0.1s ease-out;
+            z-index: 5;
+        }
+
+        .direction {
+            position: absolute;
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--radar-green);
+            text-shadow: 0 0 10px var(--radar-green);
+        }
+
+        .n { top: -30px; left: 50%; transform: translateX(-50%); color: #ff3333; }
+        .s { bottom: -30px; left: 50%; transform: translateX(-50%); }
+        .e { right: -30px; top: 50%; transform: translateY(-50%); }
+        .w { left: -30px; top: 50%; transform: translateY(-50%); }
+
+        /* 碁盤の目（レーダー画面） */
+        #radar-screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            border-radius: 50%;
+            background-color: var(--radar-bg);
+            border: 4px solid var(--radar-green);
+            box-shadow: inset 0 0 30px rgba(0, 255, 0, 0.3), 0 0 15px rgba(0, 255, 0, 0.2);
+            overflow: hidden;
+            z-index: 2;
+        }
+
+        /* 網目（碁盤の目） */
+        .grid-lines {
+            width: 200%; height: 200%;
+            position: absolute;
+            top: -50%; left: -50%;
+            background-image: 
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-position: center center;
+            /* 回転時はここを回す */
+            transition: transform 0.1s linear;
+        }
+
+        /* 中心：自分マーク */
+        #self-marker {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 14px; height: 14px;
+            background-color: #ff0000;
+            border: 2px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            box-shadow: 0 0 10px #ff0000;
+        }
+
+        /* 情報表示エリア */
+        #info-panel {
+            text-align: center;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--radar-green);
+            width: 280px;
+        }
+
+        .label { color: var(--radar-green); font-size: 0.8rem; margin-bottom: 4px; }
+        .value { font-size: 1.2rem; font-weight: bold; margin-bottom: 10px; letter-spacing: 1px; }
+
+        button {
+            padding: 10px 20px;
+            background: var(--radar-green);
+            border: none;
+            color: black;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/mgrs@1.0.0/dist/mgrs.min.js"></script>
 </head>
 <body>
 
-    <div id="hud">
-        <span class="label">自機ID:</span> <span id="display-id">---</span><br>
-        <span class="label">追跡中:</span> <span id="tgt-id">---</span><br>
-        <span class="label">MGRS :</span> <span id="my-mgrs">取得中...</span>
-    </div>
-
-    <div id="compass-container">
-        <div class="axis v"></div>
-        <div class="axis h"></div>
-        <div id="target-marker-wrapper">
-            <div id="target-marker"></div>
+    <div id="radar-container">
+        <div id="compass-rose">
+            <div class="direction n">N</div>
+            <div class="direction e">E</div>
+            <div class="direction s">S</div>
+            <div class="direction w">W</div>
+        </div>
+        
+        <div id="radar-screen">
+            <div class="grid-lines" id="grid"></div>
+            <div id="self-marker"></div>
         </div>
     </div>
 
-    <div id="dist-display">---<span id="dist-unit">m</span></div>
-    <div id="status-msg">GPS信号待機中...</div>
+    <div id="info-panel">
+        <div class="label">CURRENT MGRS</div>
+        <div id="mgrs-display" class="value">WAITING GPS...</div>
+        
+        <div class="label">HEADING</div>
+        <div id="heading-display" class="value">0°</div>
+        
+        <button onclick="requestPermission()">START RADAR</button>
+    </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+    <script>
+        const mgrsDisplay = document.getElementById('mgrs-display');
+        const headingDisplay = document.getElementById('heading-display');
+        const compassRose = document.getElementById('compass-rose');
+        const grid = document.getElementById('grid');
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyDsART06pbzX4ZSiak1QSRBa-a9vjXJI2U",
-            authDomain: "mil-unit-locator.firebaseapp.com",
-            databaseURL: "https://mil-unit-locator-default-rtdb.firebaseio.com",
-            projectId: "mil-unit-locator",
-            storageBucket: "mil-unit-locator.firebasestorage.app",
-            messagingSenderId: "909459789384",
-            appId: "1:909459789384:web:3cc8eaf86bea210dcbaa7d"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const myId = urlParams.get('id') || 'user1';
-        const targetId = (myId === 'user1') ? 'user2' : 'user1';
-
-        document.getElementById('display-id').innerText = myId.toUpperCase();
-        document.getElementById('tgt-id').innerText = targetId.toUpperCase();
-
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000; 
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        }
-
-        function calculateBearing(lat1, lon1, lat2, lon2) {
-            const y = Math.sin((lon2-lon1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
-            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) - Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2-lon1) * Math.PI / 180);
-            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-        }
-
+        // GPS取得
         if (navigator.geolocation) {
-            navigator.geolocation.watchPosition((position) => {
-                const myLat = position.coords.latitude;
-                const myLng = position.coords.longitude;
+            navigator.geolocation.watchPosition(position => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
                 
-                // MGRSに変換
+                // MGRSに変換 (mgrs.jsを使用)
                 try {
-                    const mgrsStr = mgrs.forward([myLng, myLat]);
-                    document.getElementById('my-mgrs').innerText = mgrsStr;
-                } catch(e) {
-                    document.getElementById('my-mgrs').innerText = "変換エラー";
+                    const mgrsCoord = mgrs.forward([lon, lat]);
+                    mgrsDisplay.innerText = formatMGRS(mgrsCoord);
+                } catch (e) {
+                    mgrsDisplay.innerText = "COORD ERROR";
                 }
+            }, error => {
+                mgrsDisplay.innerText = "GPS DISABLED";
+            }, { enableHighAccuracy: true });
+        }
 
-                document.getElementById('status-msg').innerText = "オンライン: 位置情報更新中";
-
-                set(ref(db, 'locations/' + myId), {
-                    lat: myLat,
-                    lng: myLng,
-                    timestamp: Date.now()
-                });
-
-                onValue(ref(db, 'locations/' + targetId), (snapshot) => {
-                    const data = snapshot.val();
-                    if (data && data.lat) {
-                        const dist = calculateDistance(myLat, myLng, data.lat, data.lng);
-                        const bearing = calculateBearing(myLat, myLng, data.lat, data.lng);
-
-                        if (dist < 10) {
-                            document.getElementById('dist-display').innerHTML = '至近距離';
-                            document.getElementById('target-marker').style.display = 'none';
-                        } else {
-                            if (dist > 1000) {
-                                document.getElementById('dist-display').innerHTML = (dist/1000).toFixed(2) + '<span id="dist-unit">km</span>';
-                            } else {
-                                document.getElementById('dist-display').innerHTML = Math.round(dist) + '<span id="dist-unit">m</span>';
-                            }
-                            document.getElementById('target-marker-wrapper').style.transform = `rotate(${bearing}deg)`;
-                            document.getElementById('target-marker').style.display = 'block';
-                        }
-                    }
-                });
-
-            }, (error) => {
-                document.getElementById('status-msg').innerText = "GPSエラー: " + error.message;
-            }, {
-                enableHighAccuracy: true,
-                maximumAge: 0
+        // MGRSを見やすく整形 (例: 54SUE12345678 -> 54S UE 1234 5678)
+        function formatMGRS(str) {
+            return str.replace(/^(\d{2}[A-Z])([A-Z]{2})(\d+)/, (match, gzd, sqd, num) => {
+                const half = num.length / 2;
+                return `${gzd} ${sqd} ${num.substr(0, half)} ${num.substr(half)}`;
             });
+        }
+
+        // 方位取得の許可（iOS対策）とイベント登録
+        function requestPermission() {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener('deviceorientation', handleOrientation, true);
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                window.addEventListener('deviceorientation', handleOrientation, true);
+            }
+        }
+
+        function handleOrientation(event) {
+            let heading = 0;
+            
+            if (event.webkitCompassHeading) {
+                // iOS
+                heading = event.webkitCompassHeading;
+            } else if (event.alpha) {
+                // Android
+                heading = 360 - event.alpha;
+            }
+
+            const roundedHeading = Math.round(heading);
+            headingDisplay.innerText = `${roundedHeading}°`;
+
+            // 外周と網目を回転させる (逆方向に回すことで北を固定)
+            compassRose.style.transform = `rotate(${-heading}deg)`;
+            grid.style.transform = `rotate(${-heading}deg)`;
         }
     </script>
 </body>
